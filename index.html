@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Premios Arte & Gracia 2026</title>
+  <link rel="stylesheet" href="styles.css">
+  <!-- Supabase JS Client -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+  <div class="app-container">
+    <header>
+      <div class="logo-badge">Evangelismo & Teatro</div>
+      <h1>Premios Arte & Gracia 2026</h1>
+      <p class="subtitle">Elección oficial de ganadores</p>
+    </header>
+
+    <div id="progress-container" class="progress-bar-container hidden">
+      <div id="progress-fill" class="progress-bar-fill"></div>
+    </div>
+
+    <!-- PANTALLA 1: INGRESO DE NOMBRE -->
+    <div id="step-name" class="card">
+      <div class="form-group">
+        <label for="voter-name">Ingresa tu Nombre Completo para votar:</label>
+        <input type="text" id="voter-name" placeholder="Ej. Juan Pérez" autocomplete="off">
+        <button class="btn btn-gold" onclick="startVoting()">
+          Comenzar Votación
+        </button>
+      </div>
+    </div>
+
+    <!-- PANTALLA 2: CATEGORÍAS Y CANDIDATOS -->
+    <div id="step-voting" class="card hidden">
+      <div class="category-header">
+        <div class="category-step" id="cat-step">Categoría 1 de 12</div>
+        <div class="category-title" id="cat-title">Cargando...</div>
+        <div class="category-desc" id="cat-desc"></div>
+      </div>
+
+      <div class="options-grid" id="options-container"></div>
+
+      <div class="nav-buttons">
+        <button class="btn btn-secondary" id="btn-prev" onclick="prevCategory()">Atrás</button>
+        <button class="btn btn-gold btn-flex-2" id="btn-next" onclick="nextCategory()" disabled>Siguiente</button>
+      </div>
+    </div>
+
+    <!-- PANTALLA 3: RESUMEN Y CONFIRMACIÓN -->
+    <div id="step-confirm" class="card hidden">
+      <h2 class="section-title">Resumen de tus Votos</h2>
+      <div class="summary-list" id="summary-container"></div>
+      <button class="btn btn-gold" id="btn-submit" onclick="submitVotes()">
+        Enviar Mis Votos
+      </button>
+    </div>
+
+    <!-- PANTALLA 4: AGRADECIMIENTO -->
+    <div id="step-thanks" class="card thanks-card hidden">
+      <div class="trophy-icon">🏆</div>
+      <h2 class="thanks-title">¡Voto Registrado!</h2>
+      <p class="thanks-text">Gracias por participar en los Premios Arte & Gracia 2026. Dios te bendiga.</p>
+    </div>
+
+    <!-- PANTALLA 5: PANEL DE ADMINISTRACIÓN (#admin) -->
+    <div id="admin-panel" class="card admin-card hidden">
+      <h2 class="admin-title">Panel de Control Realtime</h2>
+      
+      <div id="admin-login">
+        <div class="form-group">
+          <input type="text" id="admin-user" placeholder="Usuario">
+          <input type="password" id="admin-pass" placeholder="Contraseña">
+          <button class="btn btn-blue" onclick="loginAdmin()">Ingresar</button>
+        </div>
+      </div>
+
+      <div id="admin-content" class="hidden">
+        <div class="admin-stat">
+          <span>Total Votos Recibidos:</span>
+          <strong id="stat-total-votes" class="stat-highlight">0</strong>
+        </div>
+
+        <div id="duplicate-alert" class="alert-box hidden">
+          ⚠️ <strong>Alerta de Clonación:</strong> Se han detectado dispositivos con múltiples votos registrados.
+        </div>
+
+        <h3 class="admin-subtitle">Resultados por Categoría</h3>
+        <div id="admin-results"></div>
+
+        <button class="btn btn-secondary btn-margin-top" onclick="loadAdminData()">Actualizar Datos</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Scripts -->
+  <script src="app.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>
