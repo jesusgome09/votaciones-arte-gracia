@@ -1,16 +1,16 @@
-// CONFIGURACIÓN DE SUPABASE
 const SUPABASE_URL = "https://stzfvmjuyqpgastowkwr.supabase.co"; 
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN0emZ2bWp1eXFwZ2FzdG93a3dyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA5OTcxMjIsImV4cCI6MjEwNjU3MzEyMn0.2b9O-iDYL3en8sEN2k_mwju7tn8xcf3yBw4anyo8VOQ";
-let supabaseClient = null;
 
-// Inicialización de la cliente usando un nombre de variable no duplicado
+let supabaseClient = null;
+let isVotingOpen = false;
+
 window.addEventListener('DOMContentLoaded', () => {
   if (window.supabase && typeof window.supabase.createClient === 'function') {
     supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    initVotingStatusListener();
   }
 });
 
-// OBTENER O GENERAR HUELLA ÚNICA DEL DISPOSITIVO
 function getDeviceId() {
   let id = localStorage.getItem('device_id');
   if (!id) {
@@ -20,7 +20,6 @@ function getDeviceId() {
   return id;
 }
 
-// DEFINICIÓN DE CATEGORÍAS Y NOMINADOS (Milena unificada como Arlys)
 const categories = [
   { id: "actor", title: "Mejor Actor 2026", desc: "Elige al mejor actor del año", options: ["Jonathan", "Cesar", "Elias", "Emanuel"] },
   { id: "actriz", title: "Mejor Actriz 2026", desc: "Elige a la mejor actriz del año", options: ["Yulisa", "Isabel", "Arlys", "Carla", "Yimirli"] },
@@ -40,8 +39,60 @@ let currentStep = 0;
 let voterName = "";
 let userVotes = {};
 
-// INICIAR VOTACIÓN TRAS INGRESAR NOMBRE
+async function initVotingStatusListener() {
+  if (!supabaseClient) return;
+
+  // Cargar estado inicial
+  const { data } = await supabaseClient.from('configuracion_evento').select('*').eq('id', 'global').single();
+  if (data) {
+    updateVotingUIState(data.votaciones_abiertas);
+  }
+
+  // Escuchar cambios en Realtime
+  supabaseClient
+    .channel('config_realtime')
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'configuracion_evento' }, payload => {
+      if (payload.new && payload.new.id === 'global') {
+        updateVotingUIState(payload.new.votaciones_abiertas);
+      }
+    })
+    .subscribe();
+}
+
+function updateVotingUIState(isOpen) {
+  isVotingOpen = isOpen;
+  
+  if (window.location.hash === '#admin') return;
+
+  const stepName = document.getElementById('step-name');
+  const stepVoting = document.getElementById('step-voting');
+  const stepConfirm = document.getElementById('step-confirm');
+  const closedBanner = document.getElementById('closed-banner');
+
+  if (!isOpen) {
+    // Si la votación se cierra mientras el usuario está en el proceso, se le bloquea
+    if (!stepVoting.classList.contains('hidden') || !stepName.classList.contains('hidden') || !stepConfirm.classList.contains('hidden')) {
+      stepName.classList.add('hidden');
+      stepVoting.classList.add('hidden');
+      stepConfirm.classList.add('hidden');
+      document.getElementById('progress-container').classList.add('hidden');
+      closedBanner.classList.remove('hidden');
+    }
+  } else {
+    closedBanner.classList.add('hidden');
+    // Si no ha votado ni enviado, volver al formulario
+    if (document.getElementById('step-thanks').classList.contains('hidden') && document.getElementById('step-live-gala').classList.contains('hidden')) {
+      stepName.classList.remove('hidden');
+    }
+  }
+}
+
 function startVoting() {
+  if (!isVotingOpen) {
+    alert("Las votaciones están cerradas en este momento.");
+    return;
+  }
+
   const nameInput = document.getElementById('voter-name');
   if (!nameInput) return;
   
@@ -52,15 +103,12 @@ function startVoting() {
   }
 
   voterName = val;
-  
   document.getElementById('step-name').classList.add('hidden');
   document.getElementById('step-voting').classList.remove('hidden');
   document.getElementById('progress-container').classList.remove('hidden');
-  
   renderCategory();
 }
 
-// RENDERIZAR CATEGORÍA ACTUAL Y SUS OPCIONES
 function renderCategory() {
   const cat = categories[currentStep];
   
@@ -98,7 +146,6 @@ function renderCategory() {
   document.getElementById('btn-next').disabled = !userVotes[cat.id];
 }
 
-// NAVEGACIÓN ENTRE PASOS
 function nextCategory() {
   if (currentStep < categories.length - 1) {
     currentStep++;
@@ -115,7 +162,6 @@ function prevCategory() {
   }
 }
 
-// MOSTRAR PANTALLA DE RESUMEN
 function showConfirmation() {
   document.getElementById('step-voting').classList.add('hidden');
   document.getElementById('step-confirm').classList.remove('hidden');
@@ -134,8 +180,12 @@ function showConfirmation() {
   });
 }
 
-// GUARDAR VOTOS EN LA BASE DE DATOS SUPABASE
 async function submitVotes() {
+  if (!isVotingOpen) {
+    alert("Lo sentimos, las votaciones acaban de cerrarse.");
+    return;
+  }
+
   const btn = document.getElementById('btn-submit');
   btn.disabled = true;
   btn.innerText = "Guardando...";
@@ -160,4 +210,85 @@ async function submitVotes() {
   document.getElementById('step-confirm').classList.add('hidden');
   document.getElementById('progress-container').classList.add('hidden');
   document.getElementById('step-thanks').classList.remove('hidden');
+}
+
+function resetForNewVote() {
+  if (!isVotingOpen) {
+    alert("Las votaciones están cerradas actualmente.");
+    return;
+  }
+  userVotes = {};
+  currentStep = 0;
+  voterName = "";
+  document.getElementById('voter-name').value = "";
+  
+  document.getElementById('step-thanks').classList.add('hidden');
+  document.getElementById('step-name').classList.remove('hidden');
+}
+
+async function enterLiveGala() {
+  document.getElementById('step-thanks').classList.add('hidden');
+  document.getElementById('step-live-gala').classList.remove('hidden');
+
+  await fetchInitialRevelations();
+
+  if (supabaseClient) {
+    supabaseClient
+      .channel('revelaciones_live')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'revelaciones' }, payload => {
+        addRevelationCard(payload.new);
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'revelaciones' }, payload => {
+        addRevelationCard(payload.new);
+      })
+      .subscribe();
+  }
+}
+
+async function fetchInitialRevelations() {
+  if (!supabaseClient) return;
+
+  const { data } = await supabaseClient.from('revelaciones').select('*').order('revelado_at', { ascending: true });
+  if (data && data.length > 0) {
+    const container = document.getElementById('live-revelations-container');
+    container.innerHTML = "";
+    data.forEach(rev => addRevelationCard(rev));
+  }
+}
+
+function addRevelationCard(rev) {
+  const container = document.getElementById('live-revelations-container');
+  
+  const waitingBox = container.querySelector('.waiting-box');
+  if (waitingBox) waitingBox.remove();
+
+  let card = document.getElementById(`rev-card-${rev.categoria_id}`);
+  if (!card) {
+    card = document.createElement('div');
+    card.id = `rev-card-${rev.categoria_id}`;
+    card.className = 'reveal-card';
+    container.prepend(card);
+  }
+
+  const catObj = categories.find(c => c.id === rev.categoria_id) || { title: rev.categoria_id };
+  const fileName = rev.ganador_nombre.toLowerCase() + '.jpeg';
+
+  card.innerHTML = `
+    <div class="reveal-header">🏆 ${catObj.title}</div>
+    <div class="reveal-winner-row">
+      <img class="reveal-avatar" src="./images/${fileName}" alt="${rev.ganador_nombre}" onerror="this.src='https://via.placeholder.com/50?text=${rev.ganador_nombre}';">
+      <div>
+        <div class="reveal-winner-name">🥇 ${rev.ganador_nombre}</div>
+        <div class="reveal-stats">${rev.votos_ganador} votos (${rev.porcentaje_ganador}%)</div>
+      </div>
+    </div>
+    <div class="podium-list">
+      ${rev.segundo_nombre ? `<div class="podium-item"><span>🥈 2do Lugar: <strong>${rev.segundo_nombre}</strong></span> <span>${rev.votos_segundo} votos</span></div>` : ''}
+      ${rev.tercero_nombre ? `<div class="podium-item"><span>🥉 3er Lugar: <strong>${rev.tercero_nombre}</strong></span> <span>${rev.votos_tercero} votos</span></div>` : ''}
+    </div>
+  `;
+}
+function enterLiveGalaFromBanner() {
+  document.getElementById('closed-banner').classList.add('hidden');
+  enterLiveGala();
 }
