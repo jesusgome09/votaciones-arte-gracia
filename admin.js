@@ -1,10 +1,18 @@
 window.addEventListener('hashchange', checkRoute);
+window.addEventListener('DOMContentLoaded', checkRoute);
 window.addEventListener('load', checkRoute);
 
 function checkRoute() {
   if (window.location.hash === '#admin') {
-    document.querySelectorAll('.app-container > div:not(header)').forEach(el => el.classList.add('hidden'));
-    document.getElementById('admin-panel').classList.remove('hidden');
+    // Ocultar todas las tarjetas de usuario y mostrar únicamente el panel admin
+    const stepCards = ['step-name', 'step-voting', 'step-confirm', 'step-thanks', 'step-live-gala', 'closed-banner', 'progress-container'];
+    stepCards.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.classList.add('hidden');
+    });
+
+    const adminPanel = document.getElementById('admin-panel');
+    if (adminPanel) adminPanel.classList.remove('hidden');
   }
 }
 
@@ -26,26 +34,27 @@ function switchAdminTab(tabName) {
   document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
 
   if (tabName === 'live-control') {
-    document.querySelector("button[onclick=\"switchAdminTab('live-control')\"]").classList.add('active');
-    document.getElementById('tab-live-control').classList.remove('hidden');
+    document.querySelector("button[onclick=\"switchAdminTab('live-control')\"]")?.classList.add('active');
+    document.getElementById('tab-live-control')?.classList.remove('hidden');
   } else if (tabName === 'fair-winners') {
-    document.querySelector("button[onclick=\"switchAdminTab('fair-winners')\"]").classList.add('active');
-    document.getElementById('tab-fair-winners').classList.remove('hidden');
+    document.querySelector("button[onclick=\"switchAdminTab('fair-winners')\"]")?.classList.add('active');
+    document.getElementById('tab-fair-winners')?.classList.remove('hidden');
   } else if (tabName === 'details') {
-    document.querySelector("button[onclick=\"switchAdminTab('details')\"]").classList.add('active');
-    document.getElementById('tab-details').classList.remove('hidden');
+    document.querySelector("button[onclick=\"switchAdminTab('details')\"]")?.classList.add('active');
+    document.getElementById('tab-details')?.classList.remove('hidden');
   } else if (tabName === 'audit') {
-    document.querySelector("button[onclick=\"switchAdminTab('audit')\"]").classList.add('active');
-    document.getElementById('tab-audit').classList.remove('hidden');
+    document.querySelector("button[onclick=\"switchAdminTab('audit')\"]")?.classList.add('active');
+    document.getElementById('tab-audit')?.classList.remove('hidden');
   }
 }
 
 let globalVotesData = [];
 let revealedCategories = {};
 let currentVotingStatus = false;
-let fairResultsMap = {}; // Guardará los ganadores regulados (Max 2, Min 1, Sin empates)
+let fairResultsMap = {};
 
 async function loadAdminData() {
+  // Asegurar la inicialización del cliente Supabase
   if (!supabaseClient) {
     if (window.supabase && typeof window.supabase.createClient === 'function') {
       supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -55,33 +64,39 @@ async function loadAdminData() {
     }
   }
 
-  // 1. ESTADO DE VOTACIONES
+  // 1. Cargar estado de votaciones
   const { data: configData } = await supabaseClient.from('configuracion_evento').select('*').eq('id', 'global').single();
   if (configData) {
     currentVotingStatus = configData.votaciones_abiertas;
     renderVotingToggleButton();
+  } else {
+    // Si la fila aún no existe en la BD la crea automáticamente
+    await supabaseClient.from('configuracion_evento').upsert([{ id: 'global', votaciones_abiertas: false }]);
+    currentVotingStatus = false;
+    renderVotingToggleButton();
   }
 
-  // 2. VOTOS
+  // 2. Cargar Votos
   const { data, error } = await supabaseClient.from('votos').select('*');
   if (error) {
+    console.error(error);
     alert("Error cargando votos.");
     return;
   }
-  globalVotesData = data;
+  globalVotesData = data || [];
 
-  // 3. REVELACIONES
+  // 3. Cargar Revelaciones
   const { data: revData } = await supabaseClient.from('revelaciones').select('*');
   if (revData) {
     revealedCategories = {};
     revData.forEach(r => revealedCategories[r.categoria_id] = true);
   }
 
-  // MÉTRICAS GENERALES
-  document.getElementById('stat-total-votes').innerText = data.length;
+  // Métricas Generales
+  document.getElementById('stat-total-votes').innerText = globalVotesData.length;
 
   const deviceMap = {};
-  data.forEach(v => {
+  globalVotesData.forEach(v => {
     if (!deviceMap[v.device_id]) deviceMap[v.device_id] = [];
     deviceMap[v.device_id].push(v.nombre_votante);
   });
@@ -90,18 +105,17 @@ async function loadAdminData() {
   const suspiciousDevs = Object.keys(deviceMap).filter(devId => deviceMap[devId].length > 1);
   document.getElementById('stat-suspicious-devs').innerText = suspiciousDevs.length;
 
-  // CALCULAR RESULTADOS CON EL ALGORITMO JUSTO
-  fairResultsMap = calculateFairWinners(data);
+  fairResultsMap = calculateFairWinners(globalVotesData);
 
-  // RENDERIZAR VISTAS
-  renderLiveControl(data);
+  renderLiveControl(globalVotesData);
   renderFairWinners();
-  renderDetails(data);
+  renderDetails(globalVotesData);
   renderAudit(deviceMap, suspiciousDevs);
 }
 
 function renderVotingToggleButton() {
   const btn = document.getElementById('btn-toggle-voting');
+  if (!btn) return;
   if (currentVotingStatus) {
     btn.innerText = "🔴 CERRAR VOTACIONES";
     btn.className = "btn btn-small btn-status-open";
@@ -123,13 +137,11 @@ async function toggleVotingState() {
   alert(`Las votaciones han sido ${nextStatus ? 'ABIERTAS' : 'CERRADAS'}.`);
 }
 
-// ALGORITMO JUSTO: 12 PREMIOS, 9 CANDIDATOS, MAX 2, MIN 1, SIN EMPATES
 function calculateFairWinners(data) {
   const allCandidates = ["Jonathan", "Cesar", "Elias", "Emanuel", "Yulisa", "Isabel", "Arlys", "Carla", "Yimirli"];
   const winsCount = {};
   allCandidates.forEach(c => winsCount[c] = 0);
 
-  // 1. Calcular matriz de votos por categoría
   const categoryVotes = {};
   categories.forEach(cat => {
     categoryVotes[cat.id] = {};
@@ -145,14 +157,12 @@ function calculateFairWinners(data) {
 
   const finalWinners = {};
 
-  // Ordenar categorías según el margen de victoria (las más claras primero)
   const categoryPriority = categories.map(cat => {
     const sorted = Object.entries(categoryVotes[cat.id]).sort((a, b) => b[1] - a[1]);
     const topDiff = (sorted[0] ? sorted[0][1] : 0) - (sorted[1] ? sorted[1][1] : 0);
     return { catId: cat.id, topDiff, sorted };
   }).sort((a, b) => b.topDiff - a.topDiff);
 
-  // Pasada 1: Asignación por voto popular respetando Max 2
   categoryPriority.forEach(item => {
     const catId = item.catId;
     let chosen = null;
@@ -165,16 +175,14 @@ function calculateFairWinners(data) {
       }
     }
 
-    if (!chosen) chosen = item.sorted[0][0]; // Fallback
+    if (!chosen) chosen = item.sorted[0][0];
     finalWinners[catId] = chosen;
     winsCount[chosen]++;
   });
 
-  // Pasada 2: Garantizar Min 1 para cada uno de los 9 candidatos
   const zeroWinners = allCandidates.filter(c => winsCount[c] === 0);
 
   zeroWinners.forEach(unluckyCandidate => {
-    // Buscar la categoría donde este candidato tuvo mejor desempeño
     let bestCat = null;
     let bestVotes = -1;
 
@@ -182,7 +190,6 @@ function calculateFairWinners(data) {
       if (cat.options.includes(unluckyCandidate)) {
         const v = categoryVotes[cat.id][unluckyCandidate] || 0;
         const currentWinner = finalWinners[cat.id];
-        // Solo ajustar si el ganador actual tiene 2 premios
         if (winsCount[currentWinner] > 1 && v >= bestVotes) {
           bestVotes = v;
           bestCat = cat.id;
@@ -203,6 +210,7 @@ function calculateFairWinners(data) {
 
 function renderFairWinners() {
   const container = document.getElementById('fair-winners-grid');
+  if (!container) return;
   container.innerHTML = "";
 
   const { finalWinners, categoryVotes, winsCount } = fairResultsMap;
@@ -236,9 +244,10 @@ function renderFairWinners() {
 
 function renderLiveControl(data) {
   const container = document.getElementById('live-control-list');
+  if (!container) return;
   container.innerHTML = "";
 
-  const { finalWinners, categoryVotes } = fairResultsMap;
+  const { finalWinners } = fairResultsMap;
 
   categories.forEach(cat => {
     const isAnnounced = revealedCategories[cat.id];
@@ -268,7 +277,6 @@ async function announceCategory(catId) {
   const { finalWinners, categoryVotes } = fairResultsMap;
   const winnerName = finalWinners[catId];
 
-  // Calcular ranking completo para esta categoría
   const sorted = cat.options.map(opt => ({
     name: opt,
     votes: categoryVotes[catId][opt] || 0
@@ -311,6 +319,7 @@ async function announceCategory(catId) {
 
 function renderDetails(data) {
   const container = document.getElementById('admin-results');
+  if (!container) return;
   container.innerHTML = "";
 
   categories.forEach(cat => {
@@ -353,6 +362,7 @@ function renderDetails(data) {
 
 function renderAudit(deviceMap, suspiciousDevs) {
   const container = document.getElementById('audit-list');
+  if (!container) return;
   container.innerHTML = "";
 
   if (suspiciousDevs.length === 0) {
@@ -362,7 +372,7 @@ function renderAudit(deviceMap, suspiciousDevs) {
 
   suspiciousDevs.forEach(devId => {
     const users = deviceMap[devId];
-    const card = document.createElement('div');
+    card = document.createElement('div');
     card.className = 'audit-item';
     card.innerHTML = `
       <div class="audit-dev-id">📱 ID: ${devId} (${users.length} votos)</div>
